@@ -24,25 +24,19 @@ impl Game {
     }
 
     fn update_frame(&mut self, frame: &mut Surface, mouse: (f64, f64)) {
-        Renderer::clear(frame, Color::gray(0.2));
+        Renderer::clear(frame, Color::gray(0.1));
 
         let matrix = self.engine.take_matrix();
 
         self.engine.translate(Pos2D::new(mouse.0 as f32, mouse.1 as f32));
 
-        self.engine.triangle(
+        self.engine.square(
             Color::new(1.0_f32, 0.0_f32, 0.0_f32),
 
-            Pos2D::new(0.0_f32, -60.0_f32),
             Pos2D::new(-60.0_f32, 60.0_f32),
             Pos2D::new(60.0_f32, 60.0_f32),
-        );
-        self.engine.wf_triangle(
-            Color::new(0.0_f32, 1.0_f32, 0.0_f32),
-
-            Pos2D::new(0.0_f32, -60.0_f32),
-            Pos2D::new(-60.0_f32, 60.0_f32),
-            Pos2D::new(60.0_f32, 60.0_f32),
+            Pos2D::new(-60.0_f32, -60.0_f32),
+            Pos2D::new(60.0_f32, -60.0_f32),
         );
 
         Renderer::render(frame, self.engine.take_objects());

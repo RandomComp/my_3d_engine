@@ -124,9 +124,6 @@ pub enum ObjectVertices {
     Line {
         begin: Pos2D, end: Pos2D,
     },
-    Square {
-        pos: Pos2D, size: Size,
-    },
     Triangle {
         up: Pos2D,
         left: Pos2D,
@@ -140,9 +137,6 @@ impl std::ops::AddAssign<WorldPos> for ObjectVertices {
             ObjectVertices::Line { begin, end } => {
                 *begin += rhs.begin;
                 *end   += rhs.begin;
-            }
-            ObjectVertices::Square { pos, size: _ } => {
-                *pos += rhs.begin;
             }
             ObjectVertices::Triangle { up, left, right } => {
                 *up += rhs.begin;
@@ -187,19 +181,19 @@ impl Engine {
         self.world_pos.begin += pos;
     }
 
-    pub fn triangle(&mut self, color: Color, up: Pos2D, left: Pos2D, right: Pos2D) {
+    pub fn triangle(&mut self, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
         self.objects.push(
             Object {
                 local_pos: self.world_pos,
                 color,
-                vertices: ObjectVertices::Triangle { up, left, right }
+                vertices: ObjectVertices::Triangle { up, left: downleft, right: downright }
             }
         );
     }
-    pub fn wf_triangle(&mut self, color: Color, up: Pos2D, left: Pos2D, right: Pos2D) {
-        self.line(color * Pos3D::gray(0.3), up, left);
-        self.line(color * Pos3D::gray(0.6), up, right);
-        self.line(color * Pos3D::gray(0.9), left, right);
+    pub fn wf_triangle(&mut self, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
+        self.line(color, up, downleft);
+        self.line(color, up, downright);
+        self.line(color, downleft, downright);
     }
 
     pub fn line(&mut self, color: Color, begin: Pos2D, end: Pos2D) {
@@ -212,14 +206,9 @@ impl Engine {
         );
     }
 
-    pub fn square(&mut self, color: Color, pos: Pos2D, size: Size) {
-        self.objects.push(
-            Object {
-                local_pos: self.world_pos,
-                color,
-                vertices: ObjectVertices::Square { pos, size }
-            }
-        );
+    pub fn square(&mut self, color: Color, upleft: Pos2D, upright: Pos2D, downleft: Pos2D, downright: Pos2D) {
+        self.triangle(color * Color::gray(0.3), downleft, upleft, upright);
+        self.triangle(color * Color::gray(0.8), upright, downleft, downright);
     }
 }
 
@@ -231,6 +220,7 @@ pub struct Surface<'a> {
 }
 
 impl<'a> Surface<'a> {
+    #[allow(unused)]
     fn get(&self, index: (u32, u32)) -> Option<&u32> {
         if index.0 > self.width || index.1 > self.height {
             return None
@@ -267,9 +257,6 @@ impl Renderer {
             match vertices {
                 ObjectVertices::Line { begin, end } => {
                     Self::render_line(frame, color, begin, end);
-                }
-                ObjectVertices::Square { pos, size } => {
-                    Self::render_square(frame, color, pos, size);
                 }
                 ObjectVertices::Triangle { up, left, right } => {
                     Self::render_triangle(frame, color, up, left, right);
@@ -336,31 +323,45 @@ impl Renderer {
         }
     }
 
-    fn render_triangle(frame: &mut Surface, color: Color, up: Pos2D, left: Pos2D, right: Pos2D) {
-        fn flat_bottom(frame: &mut Surface, color: Color, up: Pos2D, left: Pos2D, right: Pos2D) {
+    fn render_triangle(frame: &mut Surface, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
+        fn flat_bottom(frame: &mut Surface, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
             let (r, g, b) = (
                 (color.x * 255.0).clamp(0.0, 255.0) as u32,
                 (color.y * 255.0).clamp(0.0, 255.0) as u32,
                 (color.z * 255.0).clamp(0.0, 255.0) as u32,
             );
 
-            let y_height = right.y - up.y;
+            let y_height = (downright.y - up.y).abs();
+
+            let sty = downright.y.min(up.y);
 
             for i in 0..(y_height as u32) {
-                let y_norm = (i as f32) / y_height;
+                let y_norm = if up.y < downright.y {
+                    1.0 - ((i as f32) / y_height)
+                } else {
+                    (i as f32) / y_height
+                };
 
-                let stx = (up.x * (1.0 - y_norm) + left.x * y_norm) as u32;
-                let end_x = (up.x * (1.0 - y_norm) + right.x * y_norm) as u32;
+                let stx = (up.x * (1.0 - y_norm) + downleft.x * y_norm) as u32;
+                let end_x = (up.x * (1.0 - y_norm) + downright.x * y_norm) as u32;
 
                 for x in stx..end_x {
-                    if let Some(pix) = frame.get_mut((x, i + up.y as u32)) {
+                    if let Some(pix) = frame.get_mut((x, i + sty as u32)) {
                         *pix = r + (g << 8) + (b << 16) + (0xff << 24);
                     }
                 }
             }
         }
 
-        flat_bottom(frame, color, up, left, right);
+        if (downleft.y - downright.y).abs() < f32::EPSILON {
+            println!("up = {:?}, downleft = {:?}, downright = {:?}", up, downleft, downright);
+
+            if downleft.x < downright.x {
+                flat_bottom(frame, color, up, downleft, downright);
+            } else {
+                flat_bottom(frame, color, up, downright, downleft);
+            }
+        }
     }
 
     fn render_square(frame: &mut Surface, color: Color, pos: Pos2D, size: Size) {
