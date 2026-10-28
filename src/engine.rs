@@ -18,6 +18,7 @@ macro_rules! make_vec_type {
                 }
             }
 
+            #[allow(unused)]
             pub fn gray(val: T) -> Self {
                 Self {
                     $(

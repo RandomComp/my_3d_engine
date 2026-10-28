@@ -1,6 +1,5 @@
 mod engine;
 
-use std::iter::zip;
 use std::slice::from_raw_parts_mut;
 use std::sync::Arc;
 use pixels::{Pixels, SurfaceTexture};
@@ -9,7 +8,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use crate::engine::{Color, Engine, Pos2D, Pos2DTyped, Pos3D, Renderer, Surface};
+use crate::engine::{Color, Engine, Pos2D, Renderer, Surface};
 
 struct Game {
     engine: Engine,
