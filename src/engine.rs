@@ -119,29 +119,74 @@ pub struct WorldPos {
     begin: Pos2D,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum ObjectVertices {
     Line {
-        begin: Pos2D, end: Pos2D,
+        begin: Pos2D, end: Pos2D, width: f32,
     },
     Triangle {
-        up: Pos2D,
-        left: Pos2D,
-        right: Pos2D,
+        v0: Pos2D,
+        v1: Pos2D,
+        v2: Pos2D,
     },
+}
+
+impl ObjectVertices {
+    pub fn bounding_box(&self) -> (Pos2D, Pos2D, Pos2D, Pos2D) {
+        match *self {
+            ObjectVertices::Line { begin, end, width } => {
+                (
+                    begin,
+                    end,
+                    Pos2D::new(begin.x + width, begin.y + width),
+                    Pos2D::new(end.x + width, end.y + width),
+                )
+            }
+            ObjectVertices::Triangle { v0, v1, v2 } => {
+                let (leftx, lefty) = (v0.x.min(v1.x).min(v2.x), v0.y.min(v1.y).min(v2.y));
+                let (rightx, righty) = (v0.x.max(v1.x).max(v2.x), v0.y.max(v1.y).max(v2.y));
+
+                (
+                    Pos2D::new(leftx, lefty),
+                    Pos2D::new(rightx, lefty),
+                    Pos2D::new(leftx, righty),
+                    Pos2D::new(rightx, righty),
+                )
+            }
+        }
+    }
+}
+
+impl std::ops::Add<WorldPos> for ObjectVertices {
+    type Output = Self;
+
+    fn add(self, rhs: WorldPos) -> Self {
+        match self {
+            ObjectVertices::Line { begin, end, width } => {
+                ObjectVertices::Line { begin: begin + rhs.begin, end: end + rhs.begin, width }
+            }
+            ObjectVertices::Triangle { v0, v1, v2 } => {
+                ObjectVertices::Triangle {
+                    v0: v0 + rhs.begin,
+                    v1: v1 + rhs.begin,
+                    v2: v2 + rhs.begin,
+                }
+            }
+        }
+    }
 }
 
 impl std::ops::AddAssign<WorldPos> for ObjectVertices {
     fn add_assign(&mut self, rhs: WorldPos) {
         match self {
-            ObjectVertices::Line { begin, end } => {
+            ObjectVertices::Line { begin, end, width: _ } => {
                 *begin += rhs.begin;
                 *end   += rhs.begin;
             }
-            ObjectVertices::Triangle { up, left, right } => {
-                *up += rhs.begin;
-                *left += rhs.begin;
-                *right += rhs.begin;
+            ObjectVertices::Triangle { v0, v1, v2 } => {
+                *v0 += rhs.begin;
+                *v1 += rhs.begin;
+                *v2 += rhs.begin;
             }
         }
     }
@@ -152,6 +197,14 @@ pub struct Object {
     local_pos: WorldPos,
     color: Color,
     vertices: ObjectVertices,
+}
+
+impl Object {
+    pub fn bounding_box(&self) -> (Pos2D, Pos2D, Pos2D, Pos2D) {
+        let vertices = self.vertices + self.local_pos;
+
+        vertices.bounding_box()
+    }
 }
 
 #[derive(Debug)]
@@ -181,29 +234,34 @@ impl Engine {
         self.world_pos.begin += pos;
     }
 
-    pub fn triangle(&mut self, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
+    pub fn triangle(&mut self, color: Color, v0: Pos2D, v1: Pos2D, v2: Pos2D) {
         self.objects.push(
             Object {
                 local_pos: self.world_pos,
                 color,
-                vertices: ObjectVertices::Triangle { up, left: downleft, right: downright }
+                vertices: ObjectVertices::Triangle { v0, v1, v2 }
             }
         );
     }
     pub fn wf_triangle(&mut self, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
-        self.line(color, up, downleft);
-        self.line(color, up, downright);
-        self.line(color, downleft, downright);
+        self.line(color, 5.0, up, downleft);
+        self.line(color, 5.0, up, downright);
+        self.line(color, 5.0, downleft, downright);
     }
 
-    pub fn line(&mut self, color: Color, begin: Pos2D, end: Pos2D) {
+    pub fn line(&mut self, color: Color, width: f32, begin: Pos2D, end: Pos2D) {
         self.objects.push(
             Object {
                 local_pos: self.world_pos,
                 color,
-                vertices: ObjectVertices::Line { begin, end }
+                vertices: ObjectVertices::Line { begin, end, width }
             }
         );
+    }
+
+    pub fn wf_square(&mut self, color: Color, upleft: Pos2D, upright: Pos2D, downleft: Pos2D, downright: Pos2D) {
+        self.wf_triangle(color * Color::gray(0.3), downleft, upleft, upright);
+        self.wf_triangle(color * Color::gray(0.8), upright, downleft, downright);
     }
 
     pub fn square(&mut self, color: Color, upleft: Pos2D, upright: Pos2D, downleft: Pos2D, downright: Pos2D) {
@@ -241,8 +299,27 @@ impl<'a> Surface<'a> {
         self.frame.get_mut(x + (y * self.width as usize))
     }
 
-    fn fill(&mut self, color: u32) {
+    fn fill_all(&mut self, color: u32) {
         self.frame.fill(color);
+    }
+
+    fn fill(&mut self, start: (u32, u32), end: (u32, u32), color: u32) {
+        let (start, end) = if start.0 > end.0 || start.1 > end.1 {
+            (end, start)
+        } else {
+            (start, end)
+        };
+
+        if start.0 >= self.width || start.1 >= self.height {
+            return
+        }
+
+        let start = start.0 as usize + (start.1 as usize * self.width as usize);
+        let end = end.0.min(self.width) as usize + (end.1.min(self.height) as usize * self.width as usize);
+
+        if let Some(frame) = self.frame.get_mut(start..end) {
+            frame.fill(color);
+        }
     }
 }
 
@@ -255,11 +332,11 @@ impl Renderer {
             vertices += local_pos;
 
             match vertices {
-                ObjectVertices::Line { begin, end } => {
-                    Self::render_line(frame, color, begin, end);
+                ObjectVertices::Line { begin, end, width } => {
+                    Self::render_line(frame, color, width, begin, end);
                 }
-                ObjectVertices::Triangle { up, left, right } => {
-                    Self::render_triangle(frame, color, up, left, right);
+                ObjectVertices::Triangle { v0, v1, v2 } => {
+                    Self::render_triangle(frame, color, v0, v1, v2);
                 }
             }
         }
@@ -272,95 +349,144 @@ impl Renderer {
             (color.z * 255.0).clamp(0.0, 255.0) as u32,
         );
 
-        frame.fill(r + (g << 8) + (b << 16) + (0xff << 24));
+        frame.fill_all(r + (g << 8) + (b << 16) + (0xff << 24));
     }
 
-    fn render_line(frame: &mut Surface, color: Color, start: Pos2D, end: Pos2D) {
+    fn render_line(frame: &mut Surface, color: Color, width: f32, start: Pos2D, end: Pos2D) {
         let mut pos = start;
 
         let d = end - pos;
 
-        let sx = (d.x / d.y).abs();
+        let dx = (d.x / d.y).abs();
 
-        let sx = if sx.is_nan() {
-            0.0
+        let dx = if dx.is_nan() { 0.0 } else { dx };
+
+        let dy = (d.y / d.x).abs();
+        let dy = if dy.is_nan() { 0.0 } else { dy };
+
+        let (dx, dy) = if dx < dy {
+            (
+                d.x.clamp(-dx, dx),
+                d.y.clamp(-1.0, 1.0)
+            )
         } else {
-            sx
-        };
-
-        let sy = (d.y / d.x).abs();
-
-        let sy = if sy.is_nan() {
-            0.0
-        } else {
-            sy
+            (
+                d.x.clamp(-1.0, 1.0),
+                d.y.clamp(-dy, dy)
+            )
         };
 
         loop {
-            let d = end - pos;
-
             // println!("d = {d:?}");
 
-            let (dx, dy) = if sx < sy {
-                (
-                    d.x.clamp(-sx, sx),
-                    d.y.clamp(-1.0, 1.0)
-                )
-            } else {
-                (
-                    d.x.clamp(-1.0, 1.0),
-                    d.y.clamp(-sy, sy)
-                )
-            };
-
-            if dx == 0.0 && dy == 0.0 {
+            if  (end.x - pos.x).abs() < f32::EPSILON &&
+                (end.y - pos.y).abs() < f32::EPSILON {
                 break
             }
 
-            Self::render_square(frame, color, pos, Pos2D::new(5.0_f32, 5.0_f32));
+            Self::render_square(frame, color, pos, Pos2D::new(width, width));
 
             pos.x += dx; pos.y += dy;
         }
     }
 
-    fn render_triangle(frame: &mut Surface, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
-        fn flat_bottom(frame: &mut Surface, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
+    fn render_triangle(frame: &mut Surface, color: Color, mut v0: Pos2D, v1: Pos2D, v2: Pos2D) {
+        if  v0.x.max(v1.x).max(v2.x) <= 0 as f32           || v0.y.max(v1.y).max(v2.y) <= 0 as f32 ||
+            v0.x.min(v1.x).min(v2.x) >= frame.width as f32 || v0.y.min(v1.y).min(v2.y) >= frame.height as f32 {
+            return
+        }
+
+        let (mut v1, mut v2) = if v1.x <= v2.x {
+            (v1, v2)
+        } else {
+            (v2, v1)
+        };
+
+        // println!("up = {:?}, downleft = {:?}, downright = {:?}", up, downleft, downright);
+
+        let up = {
+            let mut up_copy = v0;
+
+            let up_ref = [&mut v0, &mut v1, &mut v2].into_iter()
+                            .min_by(|a, b| a.y.total_cmp(&b.y)).unwrap();
+
+            mem::swap(up_ref, &mut up_copy);
+
+            up_copy
+        };
+
+        // println!("up = {up:?}");
+
+        // println!("up = {:?}, downleft = {:?}, downright = {:?}", up, downleft, downright);
+
+        fn flat_bottom(frame: &mut Surface, color: Color, v0: Pos2D, v1: Pos2D, v2: Pos2D) {
+            let (v1, v2) = if v1.x < v2.x {
+                (v1, v2)
+            } else {
+                (v2, v1)
+            };
+
             let (r, g, b) = (
                 (color.x * 255.0).clamp(0.0, 255.0) as u32,
                 (color.y * 255.0).clamp(0.0, 255.0) as u32,
                 (color.z * 255.0).clamp(0.0, 255.0) as u32,
             );
 
-            let y_height = (downright.y - up.y).abs();
+            let y_height = (v2.y - v0.y).abs();
 
-            let sty = downright.y.min(up.y);
+            let sty = v2.y.min(v0.y);
 
             for i in 0..(y_height as u32) {
-                let y_norm = if up.y < downright.y {
-                    1.0 - ((i as f32) / y_height)
-                } else {
+                if (i as f32 + sty) <= 0.0 {
+                    continue;
+                }
+                if (i as f32 + sty) >= frame.height as f32 {
+                    continue;
+                }
+
+                let y_norm = if v0.y <= v2.y {
                     (i as f32) / y_height
+                } else {
+                    1.0 - ((i as f32) / y_height)
                 };
 
-                let stx = (up.x * (1.0 - y_norm) + downleft.x * y_norm) as u32;
-                let end_x = (up.x * (1.0 - y_norm) + downright.x * y_norm) as u32;
+                let stx = v0.x * (1.0 - y_norm) + v1.x * y_norm;
+                let end_x = v0.x * (1.0 - y_norm) + v2.x * y_norm;
 
-                for x in stx..end_x {
-                    if let Some(pix) = frame.get_mut((x, i + sty as u32)) {
-                        *pix = r + (g << 8) + (b << 16) + (0xff << 24);
-                    }
-                }
+                let y = (i as f32 + sty) as u32;
+
+                frame.fill((stx as u32, y), (end_x as u32, y), r + (g << 8) + (b << 16) + (0xff << 24));
             }
         }
 
-        if (downleft.y - downright.y).abs() < f32::EPSILON {
-            println!("up = {:?}, downleft = {:?}, downright = {:?}", up, downleft, downright);
+        if (v1.y - v2.y).abs() < f32::EPSILON {
+            flat_bottom(frame, color, up, v1, v2);
+        } else if v1.y > v2.y {
+            let x4 = Pos2D::new(v2.x, v1.y);
 
-            if downleft.x < downright.x {
-                flat_bottom(frame, color, up, downleft, downright);
-            } else {
-                flat_bottom(frame, color, up, downright, downleft);
-            }
+            // if downleft.x < downright.x {
+            flat_bottom(frame, color, up, v1, x4);
+            flat_bottom(frame, color, Pos2D::new(v1.x, v2.y), v1, x4);
+            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), downleft);
+            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), x4);
+            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, downleft, x4);
+
+            // } else {s
+            //     flat_bottom(frame, color, up, x4, downleft);
+            // }
+        } else {
+            let x4 = Pos2D::new(v1.x, v2.y);
+
+            // if downleft.x < downright.x {
+            flat_bottom(frame, color, up, v2, x4);
+            flat_bottom(frame, Color::gray(0.5), Pos2D::new(v2.x, v1.y), v2, x4);
+            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), downleft);
+            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), x4);
+            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, downleft, x4);
+
+            // } else {s
+            //     flat_bottom(frame, color, up, x4, downleft);
+            // }
         }
     }
 
@@ -371,21 +497,28 @@ impl Renderer {
             (color.z * 255.0).clamp(0.0, 255.0) as u32,
         );
 
+        if (size.x - 1.0).abs() < f32::EPSILON && (size.y - 1.0).abs() < f32::EPSILON {
+            if let Some(pix) = frame.get_mut((pos.x as u32, pos.y as u32)) {
+                *pix = r + (g << 8) + (b << 16) + (0xff << 24);
+            }
+
+            return
+        }
+
         let (size_x, size_y) = (size.x as u32, size.y as u32);
 
         for y in 0..size_y {
-            for x in 0..size_x {
-                let pos_x = pos.x as u32 + x;
-                let pos_y = pos.y as u32 + y;
+            let pos_y = pos.y + y as f32;
 
-                if pos_x >= frame.width {
-                    break
-                }
-
-                if let Some(pix) = frame.get_mut((pos_x, pos_y)) {
-                    *pix = r + (g << 8) + (b << 16) + (0xff << 24);
-                }
+            if pos.x >= frame.width as f32 {
+                break
             }
+
+            frame.fill(
+                (pos.x as u32, pos_y as u32),
+                (pos.x as u32 + size_x, pos_y as u32),
+                r + (g << 8) + (b << 16) + (0xff << 24)
+            );
         }
     }
 }

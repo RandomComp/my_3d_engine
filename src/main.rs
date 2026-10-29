@@ -29,15 +29,45 @@ impl Game {
         let matrix = self.engine.take_matrix();
 
         self.engine.translate(Pos2D::new(mouse.0 as f32, mouse.1 as f32));
+        self.engine.translate(Pos2D::new(-120.0, -120.0));
 
-        self.engine.square(
+        let (color, vert1, vert2, vert3) = (
             Color::new(1.0_f32, 0.0_f32, 0.0_f32),
 
+            Pos2D::new(60.0_f32, -100.0_f32),
             Pos2D::new(-60.0_f32, 60.0_f32),
             Pos2D::new(60.0_f32, 60.0_f32),
-            Pos2D::new(-60.0_f32, -60.0_f32),
-            Pos2D::new(60.0_f32, -60.0_f32),
         );
+
+        for _ in 0..10000 {
+            self.engine.wf_triangle(
+                color, vert1, vert2, vert3
+            );
+        }
+
+        // self.engine.wf_triangle(
+        //     color, vert1, vert2, vert3
+        // );
+
+//         self.engine.wf_square(
+//             Color::new(1.0_f32, 0.0_f32, 0.0_f32),
+//
+//             Pos2D::new(-60.0_f32, 100.0_f32),
+//             Pos2D::new(60.0_f32, 60.0_f32),
+//             Pos2D::new(-60.0_f32, -60.0_f32),
+//             Pos2D::new(60.0_f32, -60.0_f32),
+//         );
+//
+//         self.engine.translate(Pos2D::new(180.0, 0.0));
+//
+//         self.engine.square(
+//             Color::new(1.0_f32, 0.0_f32, 0.0_f32),
+//
+//             Pos2D::new(-60.0_f32, 70.0_f32),
+//             Pos2D::new(60.0_f32, 60.0_f32),
+//             Pos2D::new(-60.0_f32, -60.0_f32),
+//             Pos2D::new(60.0_f32, -60.0_f32),
+//         );
 
         Renderer::render(frame, self.engine.take_objects());
 
@@ -88,13 +118,15 @@ impl ApplicationHandler for App {
         // Передаем клон Arc<Window> внутрь SurfaceTexture
         let surface_texture = SurfaceTexture::new(size.width, size.height, window.clone());
 
-        if let Ok(pixels) = Pixels::new(size.width, size.height, surface_texture) {
+        if let Ok(mut pixels) = Pixels::new(size.width, size.height, surface_texture) {
             self.window = Some(window);
 
             // Запрашиваем первый кадр
             self.window.as_ref().unwrap().request_redraw();
 
             self.game = Some(Game::new());
+
+            pixels.enable_vsync(false);
 
             self.pixels = Some(pixels);
         }
