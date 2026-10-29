@@ -36,14 +36,14 @@ impl Game {
 
             Pos2D::new(60.0_f32, -100.0_f32),
             Pos2D::new(-60.0_f32, 60.0_f32),
-            Pos2D::new(60.0_f32, 60.0_f32),
+            Pos2D::new(60.0_f32, 70.0_f32),
         );
 
-        for _ in 0..10000 {
+        // for _ in 0..10000 {
             self.engine.wf_triangle(
                 color, vert1, vert2, vert3
             );
-        }
+        // }
 
         // self.engine.wf_triangle(
         //     color, vert1, vert2, vert3

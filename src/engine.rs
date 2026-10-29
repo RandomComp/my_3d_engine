@@ -1,16 +1,16 @@
-use std::{mem, ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign}};
+use std::{mem, ops::{Add, Sub, Mul, Div, AddAssign, SubAssign, MulAssign, DivAssign}};
 
 macro_rules! make_vec_type {
     (
-        $name:ident => $( $coord:ident ),*
+        $name:ident<$t:ty> => $( $coord:ident ),*
     ) => {
         #[derive(Copy, Clone, Debug, Default)]
-        pub struct $name<T> {
-            $( $coord: T ),*
+        pub struct $name {
+            $( $coord: $t ),*
         }
 
-        impl<T> $name<T> where T: Copy {
-            pub fn new($( $coord: T ),*) -> Self {
+        impl $name {
+            pub fn new($( $coord: $t ),*) -> Self {
                 Self {
                     $(
                         $coord,
@@ -19,7 +19,7 @@ macro_rules! make_vec_type {
             }
 
             #[allow(unused)]
-            pub fn gray(val: T) -> Self {
+            pub fn gray(val: $t) -> Self {
                 Self {
                     $(
                         $coord: val,
@@ -28,7 +28,7 @@ macro_rules! make_vec_type {
             }
         }
 
-        impl<T> Add for $name<T> where T: Add<Output=T> {
+        impl Add for $name {
             type Output = Self;
 
             fn add(self, rhs: Self) -> Self::Output {
@@ -40,7 +40,7 @@ macro_rules! make_vec_type {
             }
         }
 
-        impl<T> std::ops::Sub for $name<T> where T: Sub<Output=T> {
+        impl Sub for $name {
             type Output = Self;
 
             fn sub(self, rhs: Self) -> Self::Output {
@@ -52,7 +52,7 @@ macro_rules! make_vec_type {
             }
         }
 
-        impl<T> std::ops::Mul for $name<T> where T: Mul<Output=T> {
+        impl Mul for $name {
             type Output = Self;
 
             fn mul(self, rhs: Self) -> Self::Output {
@@ -64,7 +64,19 @@ macro_rules! make_vec_type {
             }
         }
 
-        impl<T> std::ops::AddAssign for $name<T> where T: AddAssign {
+        impl Div for $name {
+            type Output = Self;
+
+            fn div(self, rhs: Self) -> Self::Output {
+                Self {
+                    $(
+                        $coord: self.$coord / rhs.$coord,
+                    )*
+                }
+            }
+        }
+
+        impl AddAssign for $name {
             fn add_assign(&mut self, rhs: Self) {
                 $(
                     self.$coord += rhs.$coord;
@@ -72,7 +84,7 @@ macro_rules! make_vec_type {
             }
         }
 
-        impl<T> std::ops::SubAssign for $name<T> where T: SubAssign {
+        impl SubAssign for $name {
             fn sub_assign(&mut self, rhs: Self) {
                 $(
                     self.$coord -= rhs.$coord;
@@ -80,18 +92,26 @@ macro_rules! make_vec_type {
             }
         }
 
-        impl<T> std::ops::MulAssign for $name<T> where T: MulAssign {
+        impl MulAssign for $name {
             fn mul_assign(&mut self, rhs: Self) {
                 $(
                     self.$coord *= rhs.$coord;
                 )*
             }
         }
+
+        impl DivAssign for $name {
+            fn div_assign(&mut self, rhs: Self) {
+                $(
+                    self.$coord /= rhs.$coord;
+                )*
+            }
+        }
     };
 }
 
-make_vec_type!(Pos2DTyped => x, y);
-make_vec_type!(Pos3DTyped => x, y, z);
+make_vec_type!(Pos2D<f32> => x, y);
+make_vec_type!(Pos3D<f32> => x, y, z);
 
 // impl<T> From<(T, T)> for $name<T> {
 //     fn from(value: (T, T)) -> Self {
@@ -107,9 +127,6 @@ make_vec_type!(Pos3DTyped => x, y, z);
 //         (value.x, value.y)
 //     }
 // }
-
-pub type Pos2D = Pos2DTyped<f32>;
-pub type Pos3D = Pos3DTyped<f32>;
 
 pub type Size = Pos2D;
 pub type Color = Pos3D;
@@ -244,9 +261,9 @@ impl Engine {
         );
     }
     pub fn wf_triangle(&mut self, color: Color, up: Pos2D, downleft: Pos2D, downright: Pos2D) {
-        self.line(color, 5.0, up, downleft);
-        self.line(color, 5.0, up, downright);
-        self.line(color, 5.0, downleft, downright);
+        self.line(color, 1.0, up, downleft);
+        self.line(color, 1.0, up, downright);
+        self.line(color, 1.0, downleft, downright);
     }
 
     pub fn line(&mut self, color: Color, width: f32, begin: Pos2D, end: Pos2D) {
@@ -331,6 +348,10 @@ impl Renderer {
         for Object { local_pos, color, mut vertices } in objects {
             vertices += local_pos;
 
+            // if vertices.bounding_box() {
+            //     return
+            // }
+
             match vertices {
                 ObjectVertices::Line { begin, end, width } => {
                     Self::render_line(frame, color, width, begin, end);
@@ -379,8 +400,10 @@ impl Renderer {
         loop {
             // println!("d = {d:?}");
 
-            if  (end.x - pos.x).abs() < f32::EPSILON &&
-                (end.y - pos.y).abs() < f32::EPSILON {
+            // println!("diff = {:?}", (pos / end));
+
+            if  (pos.x / end.x) >= (1.0 - 0.001) &&
+                (pos.y / end.y) >= (1.0 - 0.001) {
                 break
             }
 
@@ -391,11 +414,6 @@ impl Renderer {
     }
 
     fn render_triangle(frame: &mut Surface, color: Color, mut v0: Pos2D, v1: Pos2D, v2: Pos2D) {
-        if  v0.x.max(v1.x).max(v2.x) <= 0 as f32           || v0.y.max(v1.y).max(v2.y) <= 0 as f32 ||
-            v0.x.min(v1.x).min(v2.x) >= frame.width as f32 || v0.y.min(v1.y).min(v2.y) >= frame.height as f32 {
-            return
-        }
-
         let (mut v1, mut v2) = if v1.x <= v2.x {
             (v1, v2)
         } else {
@@ -432,31 +450,56 @@ impl Renderer {
                 (color.z * 255.0).clamp(0.0, 255.0) as u32,
             );
 
+            let color = r + (g << 8) + (b << 16) + (0xff << 24);
+
             let y_height = (v2.y - v0.y).abs();
 
             let sty = v2.y.min(v0.y);
 
-            for i in 0..(y_height as u32) {
-                if (i as f32 + sty) <= 0.0 {
-                    continue;
+            let i_normal_inv = 1.0 / y_height;
+
+            let mut y_norm = 0.0;
+
+            let frame_height_f32 = frame.height as f32;
+
+            let mut i = 0.0;
+
+            let (mut stx, mut end_x, mut y) = (0.0, 0.0, 0);
+
+            loop {
+                if i >= y_height {
+                    break
                 }
-                if (i as f32 + sty) >= frame.height as f32 {
+
+                if  (i + sty) <= 0.0 ||
+                    (i + sty) >= frame_height_f32 {
+                    i += 1.0;
+
                     continue;
                 }
 
-                let y_norm = if v0.y <= v2.y {
-                    (i as f32) / y_height
+                stx = v0.x * (1.0 - y_norm) + v1.x * y_norm;
+                end_x = v0.x * (1.0 - y_norm) + v2.x * y_norm;
+
+                y = (i + sty) as u32;
+
+                if let Some(pix) = frame.get_mut((stx as u32, y)) {
+                    *pix = color;
+                }
+                if let Some(pix) = frame.get_mut((end_x as u32, y)) {
+                    *pix = color;
+                }
+
+                if v0.y <= v2.y {
+                    y_norm += i_normal_inv
                 } else {
-                    1.0 - ((i as f32) / y_height)
+                    y_norm -= i_normal_inv;
                 };
 
-                let stx = v0.x * (1.0 - y_norm) + v1.x * y_norm;
-                let end_x = v0.x * (1.0 - y_norm) + v2.x * y_norm;
-
-                let y = (i as f32 + sty) as u32;
-
-                frame.fill((stx as u32, y), (end_x as u32, y), r + (g << 8) + (b << 16) + (0xff << 24));
+                i += 1.0;
             }
+
+            frame.fill((stx as u32, y), (end_x as u32, y), color);
         }
 
         if (v1.y - v2.y).abs() < f32::EPSILON {
