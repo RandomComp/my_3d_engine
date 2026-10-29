@@ -24,51 +24,16 @@ impl Game {
     }
 
     fn update_frame(&mut self, frame: &mut Surface, mouse: (f64, f64)) {
-        Renderer::clear(frame, Color::gray(0.1));
-
         let matrix = self.engine.take_matrix();
 
-        self.engine.translate(Pos2D::new(mouse.0 as f32, mouse.1 as f32));
-        self.engine.translate(Pos2D::new(-120.0, -120.0));
-
-        let (color, vert1, vert2, vert3) = (
-            Color::new(1.0_f32, 0.0_f32, 0.0_f32),
-
-            Pos2D::new(60.0_f32, -100.0_f32),
-            Pos2D::new(-60.0_f32, 60.0_f32),
-            Pos2D::new(60.0_f32, 70.0_f32),
+        self.engine.line(
+            Color::new(1.0, 0.0, 0.0),
+            5.0,
+            Pos2D::new(frame.width as f32 * 0.5, frame.height as f32 * 0.5),
+            Pos2D::new(mouse.0 as f32, mouse.1 as f32),
         );
 
-        // for _ in 0..10000 {
-            self.engine.wf_triangle(
-                color, vert1, vert2, vert3
-            );
-        // }
-
-        // self.engine.wf_triangle(
-        //     color, vert1, vert2, vert3
-        // );
-
-//         self.engine.wf_square(
-//             Color::new(1.0_f32, 0.0_f32, 0.0_f32),
-//
-//             Pos2D::new(-60.0_f32, 100.0_f32),
-//             Pos2D::new(60.0_f32, 60.0_f32),
-//             Pos2D::new(-60.0_f32, -60.0_f32),
-//             Pos2D::new(60.0_f32, -60.0_f32),
-//         );
-//
-//         self.engine.translate(Pos2D::new(180.0, 0.0));
-//
-//         self.engine.square(
-//             Color::new(1.0_f32, 0.0_f32, 0.0_f32),
-//
-//             Pos2D::new(-60.0_f32, 70.0_f32),
-//             Pos2D::new(60.0_f32, 60.0_f32),
-//             Pos2D::new(-60.0_f32, -60.0_f32),
-//             Pos2D::new(60.0_f32, -60.0_f32),
-//         );
-
+        Renderer::clear(frame, Color::point(0.1));
         Renderer::render(frame, self.engine.take_objects());
 
         self.engine.load_matrix(matrix);

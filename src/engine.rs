@@ -19,7 +19,7 @@ macro_rules! make_vec_type {
             }
 
             #[allow(unused)]
-            pub fn gray(val: $t) -> Self {
+            pub fn point(val: $t) -> Self {
                 Self {
                     $(
                         $coord: val,
@@ -27,7 +27,13 @@ macro_rules! make_vec_type {
                 }
             }
         }
+    };
+}
 
+macro_rules! impl_ops_for_vec_type {
+    (
+        $name:ident<$t:ty> => $( $coord:ident ),*
+    ) => {
         impl Add for $name {
             type Output = Self;
 
@@ -47,6 +53,18 @@ macro_rules! make_vec_type {
                 Self {
                     $(
                         $coord: self.$coord - rhs.$coord,
+                    )*
+                }
+            }
+        }
+
+        impl Mul<$t> for $name {
+            type Output = Self;
+
+            fn mul(self, rhs: $t) -> Self::Output {
+                Self {
+                    $(
+                        $coord: self.$coord * rhs,
                     )*
                 }
             }
@@ -111,7 +129,19 @@ macro_rules! make_vec_type {
 }
 
 make_vec_type!(Pos2D<f32> => x, y);
+impl_ops_for_vec_type!(Pos2D<f32> => x, y);
+
 make_vec_type!(Pos3D<f32> => x, y, z);
+impl_ops_for_vec_type!(Pos3D<f32> => x, y, z);
+
+make_vec_type!(BoxCollider2D<Pos2D> => v0, v1);
+
+impl BoxCollider2D {
+    pub fn bounds_with(&self, rhs: Self) -> bool {
+        rhs.v0.x >= self.v0.x && rhs.v0.y >= self.v0.y &&
+        rhs.v1.x <= self.v1.x && rhs.v1.y <= self.v1.y
+    }
+}
 
 // impl<T> From<(T, T)> for $name<T> {
 //     fn from(value: (T, T)) -> Self {
@@ -142,33 +172,27 @@ pub enum ObjectVertices {
         begin: Pos2D, end: Pos2D, width: f32,
     },
     Triangle {
-        v0: Pos2D,
-        v1: Pos2D,
-        v2: Pos2D,
+        v0: Pos2D, v1: Pos2D, v2: Pos2D,
     },
 }
 
 impl ObjectVertices {
-    pub fn bounding_box(&self) -> (Pos2D, Pos2D, Pos2D, Pos2D) {
+    pub fn bounding_box(&self) -> BoxCollider2D {
         match *self {
             ObjectVertices::Line { begin, end, width } => {
-                (
-                    begin,
-                    end,
-                    Pos2D::new(begin.x + width, begin.y + width),
-                    Pos2D::new(end.x + width, end.y + width),
-                )
+                BoxCollider2D {
+                    v0: begin,
+                    v1: Pos2D::new(end.x + width, end.y + width),
+                }
             }
             ObjectVertices::Triangle { v0, v1, v2 } => {
                 let (leftx, lefty) = (v0.x.min(v1.x).min(v2.x), v0.y.min(v1.y).min(v2.y));
                 let (rightx, righty) = (v0.x.max(v1.x).max(v2.x), v0.y.max(v1.y).max(v2.y));
 
-                (
-                    Pos2D::new(leftx, lefty),
-                    Pos2D::new(rightx, lefty),
-                    Pos2D::new(leftx, righty),
-                    Pos2D::new(rightx, righty),
-                )
+                BoxCollider2D {
+                    v0: Pos2D::new(leftx, lefty),
+                    v1: Pos2D::new(rightx, righty),
+                }
             }
         }
     }
@@ -217,7 +241,7 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn bounding_box(&self) -> (Pos2D, Pos2D, Pos2D, Pos2D) {
+    pub fn bounding_box(&self) -> BoxCollider2D {
         let vertices = self.vertices + self.local_pos;
 
         vertices.bounding_box()
@@ -277,13 +301,13 @@ impl Engine {
     }
 
     pub fn wf_square(&mut self, color: Color, upleft: Pos2D, upright: Pos2D, downleft: Pos2D, downright: Pos2D) {
-        self.wf_triangle(color * Color::gray(0.3), downleft, upleft, upright);
-        self.wf_triangle(color * Color::gray(0.8), upright, downleft, downright);
+        self.wf_triangle(color * 0.3, downleft, upleft, upright);
+        self.wf_triangle(color * 0.8, upright, downleft, downright);
     }
 
     pub fn square(&mut self, color: Color, upleft: Pos2D, upright: Pos2D, downleft: Pos2D, downright: Pos2D) {
-        self.triangle(color * Color::gray(0.3), downleft, upleft, upright);
-        self.triangle(color * Color::gray(0.8), upright, downleft, downright);
+        self.triangle(color * 0.3, downleft, upleft, upright);
+        self.triangle(color * 0.8, upright, downleft, downright);
     }
 }
 
@@ -374,6 +398,12 @@ impl Renderer {
     }
 
     fn render_line(frame: &mut Surface, color: Color, width: f32, start: Pos2D, end: Pos2D) {
+        let (start, end) = if start.x <= end.x && start.y <= end.y {
+            (start, end)
+        } else {
+            (end, start)
+        };
+
         let mut pos = start;
 
         let d = end - pos;
@@ -396,6 +426,8 @@ impl Renderer {
                 d.y.clamp(-dy, dy)
             )
         };
+
+        println!("start = {start:?}, (dx, dy) = ({dx}, {dy}), end = {end:?}");
 
         loop {
             // println!("d = {d:?}");
@@ -464,8 +496,6 @@ impl Renderer {
 
             let mut i = 0.0;
 
-            let (mut stx, mut end_x, mut y) = (0.0, 0.0, 0);
-
             loop {
                 if i >= y_height {
                     break
@@ -478,17 +508,12 @@ impl Renderer {
                     continue;
                 }
 
-                stx = v0.x * (1.0 - y_norm) + v1.x * y_norm;
-                end_x = v0.x * (1.0 - y_norm) + v2.x * y_norm;
+                let stx = v0.x * (1.0 - y_norm) + v1.x * y_norm;
+                let end_x = v0.x * (1.0 - y_norm) + v2.x * y_norm;
 
-                y = (i + sty) as u32;
+                let y = (i + sty) as u32;
 
-                if let Some(pix) = frame.get_mut((stx as u32, y)) {
-                    *pix = color;
-                }
-                if let Some(pix) = frame.get_mut((end_x as u32, y)) {
-                    *pix = color;
-                }
+                frame.fill((stx as u32, y), (end_x as u32, y), color);
 
                 if v0.y <= v2.y {
                     y_norm += i_normal_inv
@@ -498,8 +523,6 @@ impl Renderer {
 
                 i += 1.0;
             }
-
-            frame.fill((stx as u32, y), (end_x as u32, y), color);
         }
 
         if (v1.y - v2.y).abs() < f32::EPSILON {
@@ -518,14 +541,14 @@ impl Renderer {
             //     flat_bottom(frame, color, up, x4, downleft);
             // }
         } else {
-            let x4 = Pos2D::new(v1.x, v2.y);
+            let x4 = Pos2D::new(v2.x, v1.y);
 
             // if downleft.x < downright.x {
-            flat_bottom(frame, color, up, v2, x4);
-            flat_bottom(frame, Color::gray(0.5), Pos2D::new(v2.x, v1.y), v2, x4);
-            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), downleft);
-            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), x4);
-            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, downleft, x4);
+            flat_bottom(frame, color, up, v1, x4);
+            flat_bottom(frame, color, Pos2D::new(v1.x, v2.y), v1, x4);
+            Renderer::render_line(frame, color * 2.0, 2.0, Pos2D::new(v1.x, v2.y), v1);
+            Renderer::render_line(frame, color * 2.0, 2.0, Pos2D::new(v1.x, v2.y), x4);
+            Renderer::render_line(frame, color * 2.0, 2.0, v1, x4);
 
             // } else {s
             //     flat_bottom(frame, color, up, x4, downleft);
