@@ -1,12 +1,14 @@
 use std::{mem, ops::{Add, Sub, Mul, Div, AddAssign, SubAssign, MulAssign, DivAssign}};
 
+use crate::cast_u32_to_u8;
+
 macro_rules! make_vec_type {
     (
         $name:ident<$t:ty> => $( $coord:ident ),*
     ) => {
         #[derive(Copy, Clone, Debug, Default)]
         pub struct $name {
-            $( $coord: $t ),*
+            $( pub $coord: $t ),*
         }
 
         impl $name {
@@ -128,8 +130,23 @@ macro_rules! impl_ops_for_vec_type {
     };
 }
 
+make_vec_type!(ScreenPos<i32> => x, y);
+impl_ops_for_vec_type!(ScreenPos<i32> => x, y);
+
+pub type ScreenSize = ScreenPos;
+
 make_vec_type!(Pos2D<f32> => x, y);
 impl_ops_for_vec_type!(Pos2D<f32> => x, y);
+
+impl Pos2D {
+    #[allow(unused)]
+    pub fn distance_to(self, rhs: Self) -> f32 {
+        (
+            (rhs.x - self.x).powi(2) +
+            (rhs.y - self.y).powi(2)
+        ).sqrt()
+    }
+}
 
 make_vec_type!(Pos3D<f32> => x, y, z);
 impl_ops_for_vec_type!(Pos3D<f32> => x, y, z);
@@ -138,6 +155,11 @@ make_vec_type!(BoxCollider2D<Pos2D> => v0, v1);
 
 impl BoxCollider2D {
     pub fn bounds_with(&self, rhs: Self) -> bool {
+        rhs.v0.x >= self.v0.x && rhs.v0.y >= self.v0.y &&
+        rhs.v1.x <= self.v1.x && rhs.v1.y <= self.v1.y
+    }
+
+    pub fn contains(&self, rhs: Self) -> bool {
         rhs.v0.x >= self.v0.x && rhs.v0.y >= self.v0.y &&
         rhs.v1.x <= self.v1.x && rhs.v1.y <= self.v1.y
     }
@@ -341,7 +363,20 @@ impl<'a> Surface<'a> {
     }
 
     fn fill_all(&mut self, color: u32) {
-        self.frame.fill(color);
+        let (r, g, b) = ((color & 0xff), ((color >> 8) & 0xff), ((color >> 16) & 0xff));
+
+        println!("color = {color:X}");
+
+        if  (color & 0x00ffffff) == 0x00000000 ||
+            (color & 0x00ffffff) == 0x00ffffff {
+            let frame = cast_u32_to_u8(self.frame);
+
+            let gray = (r + g + b) / 3;
+
+            frame.fill(gray as u8);
+        } else {
+            self.frame.fill(color);
+        }
     }
 
     fn fill(&mut self, start: (u32, u32), end: (u32, u32), color: u32) {
@@ -369,16 +404,26 @@ pub struct Renderer();
 
 impl Renderer {
     pub fn render(frame: &mut Surface, objects: Vec<Object>) {
+        let frame_box = BoxCollider2D { v0: Pos2D::point(0.0), v1: Pos2D::new(frame.width as f32, frame.height as f32) };
+
         for Object { local_pos, color, mut vertices } in objects {
             vertices += local_pos;
 
-            // if vertices.bounding_box() {
-            //     return
-            // }
+            if vertices.bounding_box().bounds_with(frame_box) {
+                return
+            }
 
             match vertices {
                 ObjectVertices::Line { begin, end, width } => {
-                    Self::render_line(frame, color, width, begin, end);
+                    Self::render_line_bresenham(frame, color, width as i32,
+                        ScreenPos::new(begin.x as i32, begin.y as i32),
+                        ScreenPos::new(end.x as i32, end.y as i32)
+                    );
+
+                    // Self::render_line_dda(frame, color, width as i32,
+                    //     begin,
+                    //     end
+                    // );
                 }
                 ObjectVertices::Triangle { v0, v1, v2 } => {
                     Self::render_triangle(frame, color, v0, v1, v2);
@@ -397,85 +442,135 @@ impl Renderer {
         frame.fill_all(r + (g << 8) + (b << 16) + (0xff << 24));
     }
 
-    fn render_line(frame: &mut Surface, color: Color, width: f32, start: Pos2D, end: Pos2D) {
-        let (start, end) = if start.x <= end.x && start.y <= end.y {
-            (start, end)
-        } else {
-            (end, start)
-        };
-
+    fn render_line_dda(frame: &mut Surface, color: Color, width: i32, start: Pos2D, end: Pos2D) {
         let mut pos = start;
 
         let d = end - pos;
 
-        let dx = (d.x / d.y).abs();
+        let sx = (d.x / d.y).abs();
 
-        let dx = if dx.is_nan() { 0.0 } else { dx };
-
-        let dy = (d.y / d.x).abs();
-        let dy = if dy.is_nan() { 0.0 } else { dy };
-
-        let (dx, dy) = if dx < dy {
-            (
-                d.x.clamp(-dx, dx),
-                d.y.clamp(-1.0, 1.0)
-            )
+        let sx = if sx.is_nan() {
+            0.0
         } else {
-            (
-                d.x.clamp(-1.0, 1.0),
-                d.y.clamp(-dy, dy)
-            )
+            sx
         };
 
-        println!("start = {start:?}, (dx, dy) = ({dx}, {dy}), end = {end:?}");
+        let sy = (d.y / d.x).abs();
+
+        let sy = if sy.is_nan() {
+            0.0
+        } else {
+            sy
+        };
 
         loop {
+            let d = end - pos;
+
             // println!("d = {d:?}");
 
-            // println!("diff = {:?}", (pos / end));
+            let (dx, dy) = if sx < sy {
+                (
+                    d.x.clamp(-sx, sx),
+                    d.y.clamp(-1.0, 1.0)
+                )
+            } else {
+                (
+                    d.x.clamp(-1.0, 1.0),
+                    d.y.clamp(-sy, sy)
+                )
+            };
 
-            if  (pos.x / end.x) >= (1.0 - 0.001) &&
-                (pos.y / end.y) >= (1.0 - 0.001) {
+            if dx.abs() < 0.01 && dy.abs() < 0.01 {
                 break
             }
 
-            Self::render_square(frame, color, pos, Pos2D::new(width, width));
+            Self::render_square(frame, color, ScreenPos::new(pos.x as i32, pos.y as i32), ScreenPos::new(width, width));
 
             pos.x += dx; pos.y += dy;
         }
     }
 
-    fn render_triangle(frame: &mut Surface, color: Color, mut v0: Pos2D, v1: Pos2D, v2: Pos2D) {
-        let (mut v1, mut v2) = if v1.x <= v2.x {
-            (v1, v2)
+    fn render_line_bresenham(frame: &mut Surface, color: Color, width: i32, start: ScreenPos, end: ScreenPos) {
+        let (r, g, b) = (
+            (color.x * 255.0).clamp(0.0, 255.0) as u32,
+            (color.y * 255.0).clamp(0.0, 255.0) as u32,
+            (color.z * 255.0).clamp(0.0, 255.0) as u32,
+        );
+
+        // let (start, end) = (end, start);
+
+        // let (start, end) = if start.x >= end.x && start.y >= end.y {
+        //     (end, start)
+        // } else {
+        //     (start, end)
+        // };
+
+        // println!("({start:?}, {end:?})");
+
+        let delta_x = (end.x - start.x).abs();
+        let delta_y = (end.y - start.y).abs();
+
+        let (sx, sy) = (
+            if end.x < start.x { -1 } else { 1 },
+            if end.y < start.y { -1 } else { 1 }
+        );
+
+        // println!("({sx}, {sy})");
+
+        if delta_y <= delta_x {
+            let mut pos_y = start.y;
+
+            // println!("start = {start:?}, end = {end:?}");
+
+            let mut error = 2 * delta_y - delta_x;
+
+            for x in 0..delta_x {
+                if error < 0 {
+                    error += 2 * delta_y;
+                } else {
+                    pos_y += sy;
+                    error += 2 * delta_y - 2 * delta_x;
+                }
+
+                if let Some(pix) = frame.get_mut(((start.x + x) as u32, pos_y as u32)) {
+                    *pix = r + (g << 8) + (b << 16) + (0xff << 24);
+                }
+            }
         } else {
-            (v2, v1)
-        };
+            let mut pos_x = start.x;
 
-        // println!("up = {:?}, downleft = {:?}, downright = {:?}", up, downleft, downright);
+            let mut error = 2 * delta_x - delta_y;
 
-        let up = {
-            let mut up_copy = v0;
+            for y in 0..delta_y {
+                if error < 0 {
+                    error += 2 * delta_x;
+                } else {
+                    pos_x += sx;
+                    error += 2 * delta_x - 2 * delta_y;
+                }
 
-            let up_ref = [&mut v0, &mut v1, &mut v2].into_iter()
-                            .min_by(|a, b| a.y.total_cmp(&b.y)).unwrap();
+                if let Some(pix) = frame.get_mut((pos_x as u32, (start.y + y) as u32)) {
+                    *pix = r + (g << 8) + (b << 16) + (0xff << 24);
+                }
+            }
+        }
+    }
 
-            mem::swap(up_ref, &mut up_copy);
+    fn render_triangle(frame: &mut Surface, color: Color, mut v0: Pos2D, v1: Pos2D, v2: Pos2D) {
+        let mut sorted = [v0, v1, v2];
+        sorted.sort_by(|&a, &b|
+            a.y.total_cmp(&b.y)
+        );
 
-            up_copy
-        };
+        let [v0, v1, v2] = sorted;
 
-        // println!("up = {up:?}");
+        if (v0.y - v2.y).abs() < f32::EPSILON {
+            Self::render_line_dda(frame, color, 1, v0, v2);
 
-        // println!("up = {:?}, downleft = {:?}, downright = {:?}", up, downleft, downright);
+            return
+        }
 
         fn flat_bottom(frame: &mut Surface, color: Color, v0: Pos2D, v1: Pos2D, v2: Pos2D) {
-            let (v1, v2) = if v1.x < v2.x {
-                (v1, v2)
-            } else {
-                (v2, v1)
-            };
-
             let (r, g, b) = (
                 (color.x * 255.0).clamp(0.0, 255.0) as u32,
                 (color.y * 255.0).clamp(0.0, 255.0) as u32,
@@ -526,12 +621,12 @@ impl Renderer {
         }
 
         if (v1.y - v2.y).abs() < f32::EPSILON {
-            flat_bottom(frame, color, up, v1, v2);
+            flat_bottom(frame, color, v0, v1, v2);
         } else if v1.y > v2.y {
             let x4 = Pos2D::new(v2.x, v1.y);
 
             // if downleft.x < downright.x {
-            flat_bottom(frame, color, up, v1, x4);
+            flat_bottom(frame, color, v0, v1, x4);
             flat_bottom(frame, color, Pos2D::new(v1.x, v2.y), v1, x4);
             // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), downleft);
             // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), x4);
@@ -544,11 +639,11 @@ impl Renderer {
             let x4 = Pos2D::new(v2.x, v1.y);
 
             // if downleft.x < downright.x {
-            flat_bottom(frame, color, up, v1, x4);
+            flat_bottom(frame, color, v0, v1, x4);
             flat_bottom(frame, color, Pos2D::new(v1.x, v2.y), v1, x4);
-            Renderer::render_line(frame, color * 2.0, 2.0, Pos2D::new(v1.x, v2.y), v1);
-            Renderer::render_line(frame, color * 2.0, 2.0, Pos2D::new(v1.x, v2.y), x4);
-            Renderer::render_line(frame, color * 2.0, 2.0, v1, x4);
+            Renderer::render_line_bresenham(frame, color * 2.0, 2, ScreenPos::new(v1.x as i32, v2.y as i32), ScreenPos::new(v1.x as i32, v1.y as i32));
+            Renderer::render_line_bresenham(frame, color * 2.0, 2, ScreenPos::new(v1.x as i32, v2.y as i32), ScreenPos::new(v2.x as i32, v1.y as i32));
+            Renderer::render_line_bresenham(frame, color * 2.0, 2, ScreenPos::new(v1.x as i32, v1.y as i32), ScreenPos::new(v2.x as i32, v1.y as i32));
 
             // } else {s
             //     flat_bottom(frame, color, up, x4, downleft);
@@ -556,14 +651,14 @@ impl Renderer {
         }
     }
 
-    fn render_square(frame: &mut Surface, color: Color, pos: Pos2D, size: Size) {
+    fn render_square(frame: &mut Surface, color: Color, pos: ScreenPos, size: ScreenSize) {
         let (r, g, b) = (
             (color.x * 255.0).clamp(0.0, 255.0) as u32,
             (color.y * 255.0).clamp(0.0, 255.0) as u32,
             (color.z * 255.0).clamp(0.0, 255.0) as u32,
         );
 
-        if (size.x - 1.0).abs() < f32::EPSILON && (size.y - 1.0).abs() < f32::EPSILON {
+        if size.x == 1 && size.y == 1 {
             if let Some(pix) = frame.get_mut((pos.x as u32, pos.y as u32)) {
                 *pix = r + (g << 8) + (b << 16) + (0xff << 24);
             }
@@ -571,18 +666,16 @@ impl Renderer {
             return
         }
 
-        let (size_x, size_y) = (size.x as u32, size.y as u32);
+        for y in 0..(size.y as u32) {
+            let pos_y = pos.y as u32 + y;
 
-        for y in 0..size_y {
-            let pos_y = pos.y + y as f32;
-
-            if pos.x >= frame.width as f32 {
+            if pos.x as u32 >= frame.width {
                 break
             }
 
             frame.fill(
-                (pos.x as u32, pos_y as u32),
-                (pos.x as u32 + size_x, pos_y as u32),
+                (pos.x as u32, pos_y),
+                (pos.x as u32 + size.x as u32, pos_y),
                 r + (g << 8) + (b << 16) + (0xff << 24)
             );
         }
