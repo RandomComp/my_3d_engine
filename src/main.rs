@@ -2,6 +2,7 @@ mod engine;
 
 use std::slice::from_raw_parts_mut;
 use std::sync::Arc;
+use std::time::SystemTime;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -12,41 +13,39 @@ use crate::engine::{Color, Engine, Pos2D, Renderer, Surface};
 
 struct Game {
     engine: Engine,
-    delta: f32,
 }
 
 impl Game {
     fn new() -> Self {
         Self {
             engine: Engine::new(),
-            delta: 0.0
         }
     }
 
-    fn update_frame(&mut self, frame: &mut Surface, mouse: (f64, f64)) {
+    fn update_frame(&mut self, frame: &mut Surface, mouse: (f64, f64), delta: f32) {
         let matrix = self.engine.take_matrix();
 
-        let (color, vert1, vert2, vert3) = (
-            Color::new(1.0_f32, 0.0_f32, 0.0_f32),
+//         let (color, vert1, vert2, vert3) = (
+//             Color::new(0.0_f32, 1.0_f32, 0.0_f32),
+//
+//             Pos2D::new(mouse.0 as f32, mouse.1 as f32),
+//             Pos2D::new(frame.width as f32 * 0.5 + 60.0_f32, frame.height as f32 * 0.5 + 60.0_f32),
+//             Pos2D::new(frame.width as f32 * 0.5 + -60.0_f32, frame.height as f32 * 0.5 + 100.0_f32),
+//         );
 
-            Pos2D::new(mouse.0 as f32, mouse.1 as f32),
-            Pos2D::new(frame.width as f32 * 0.5 + 60.0_f32, frame.height as f32 * 0.5 + 60.0_f32),
-            Pos2D::new(frame.width as f32 * 0.5 + -60.0_f32, frame.height as f32 * 0.5 + 60.0_f32),
-        );
-
-        // self.engine.translate(Pos2D::new(frame.width as f32 * 0.5, frame.height as f32 * 0.5));
+        self.engine.translate(Pos2D::new(frame.width as f32 * 0.5, frame.height as f32 * 0.5));
 
         // for _ in 0..10000 {
-            self.engine.triangle(
-                color, vert1, vert2, vert3
-            );
-            self.engine.translate(Pos2D::new(120.0, 0.0));
-            self.engine.wf_triangle(
-                color,
-                vert1,
-                Pos2D::new(vert3.x, vert1.y),
-                vert3
-            );
+            // self.engine.triangle(
+            //     color, vert1, vert2, vert3
+            // );
+            // self.engine.translate(Pos2D::new(120.0, 0.0));
+            // self.engine.wf_triangle(
+            //     color,
+            //     vert1,
+            //     vert2,
+            //     vert3
+            // );
 
         // }
 
@@ -74,36 +73,35 @@ impl Game {
         //             Pos2D::new(60.0_f32, -60.0_f32),
         //         );
 
-//         let center = Pos2D::new(0.0, 0.0);
-//         let radius = 100.0;
-//
-//         let steps = 100000.0;
-//
-//         let mut i: f32 = 0.0;
-//
-//         self.engine.translate(Pos2D::new(400.0, 300.0));
+        let center = Pos2D::new(0.0, 0.0);
+        let radius = 100.0;
 
-//         for _ in 0..(steps as usize) {
-//             let v0 = Pos2D::new(
-//                 center.x + radius * i.cos(),
-//                 center.y + radius * i.sin()
-//             );
-//
-//             i += (std::f32::consts::PI * 2.0) / steps;
-//
-//             let v1 = Pos2D::new(
-//                 center.x + radius * i.cos(),
-//                 center.y + radius * i.sin()
-//             );
-//
-//             self.engine.triangle(color, v0, v1, center);
-//
-//             // self.engine.line(Color::new(1.0, 0.0, 0.0), 1.0, v0, v1);
-//
-//             // self.engine.line(Color::new(1.0, 0.0, 0.0), 1.0, v0, v1);
-//             // self.engine.line(Color::new(0.0, 1.0, 0.0), 1.0, v0, center);
-//             // self.engine.line(Color::new(0.0, 0.0, 1.0), 1.0, v1, center);
-//         }
+        let steps = 64.0;
+        let step = (std::f32::consts::PI * 2.0) / steps;
+
+        let mut i: f32 = 0.0;
+
+        for _ in 0..(steps as usize) {
+            let v0 = Pos2D::new(
+                center.x + radius * i.cos(),
+                center.y + radius * i.sin()
+            );
+
+            i += step;
+
+            let v1 = Pos2D::new(
+                center.x + radius * i.cos(),
+                center.y + radius * i.sin()
+            );
+
+            self.engine.triangle(Color::new(0.9, 0.2, 0.0), v0, v1, center);
+
+            // self.engine.line(Color::new(1.0, 0.0, 0.0), 1.0, v0, v1);
+
+            // self.engine.line(Color::new(1.0, 0.0, 0.0), 1.0, v0, v1);
+            // self.engine.line(Color::new(0.0, 1.0, 0.0), 1.0, v0, center);
+            // self.engine.line(Color::new(0.0, 0.0, 1.0), 1.0, v1, center);
+        }
 
         // self.engine.line(
         //     Color::new(1.0, 0.0, 0.0),
@@ -116,32 +114,30 @@ impl Game {
         Renderer::render(frame, self.engine.take_objects());
 
         self.engine.load_matrix(matrix);
-
-        self.delta += 0.1;
     }
 }
 
-#[derive(Default)]
 struct App {
     // Оборачиваем в Arc, чтобы безопасно передать ссылку в Pixels
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     game: Option<Game>,
     mouse: (f64, f64),
+    start_time: SystemTime,
 }
 
 pub fn cast_u8_to_u32(arr: &mut [u8]) -> &mut [u32] {
-    unsafe {
-        let ptr = arr.as_mut_ptr();
+    let ptr = arr.as_mut_ptr();
 
+    unsafe {
         from_raw_parts_mut(ptr as *mut u32, arr.len() / 4)
     }
 }
 
 pub fn cast_u32_to_u8(arr: &mut [u32]) -> &mut [u8] {
-    unsafe {
-        let ptr = arr.as_mut_ptr();
+    let ptr = arr.as_mut_ptr();
 
+    unsafe {
         from_raw_parts_mut(ptr as *mut u8, arr.len() * 4)
     }
 }
@@ -209,7 +205,7 @@ impl ApplicationHandler for App {
 
                 let mut surface = Surface { frame, width: size.width, height: size.height };
 
-                game.update_frame(&mut surface, self.mouse);
+                game.update_frame(&mut surface, self.mouse, self.start_time.elapsed().unwrap().as_secs_f32());
 
                 if pixels.render().is_err() {
                     event_loop.exit();
@@ -230,7 +226,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::default();
+    let mut app = App {
+        window: None,
+        game: None,
+        pixels: None,
+        mouse: (0.0, 0.0),
+        start_time: std::time::SystemTime::now()
+    };
+
     event_loop.run_app(&mut app)?;
 
     Ok(())

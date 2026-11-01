@@ -184,8 +184,22 @@ pub type Size = Pos2D;
 pub type Color = Pos3D;
 
 #[derive(Default, Debug, Copy, Clone)]
+pub struct Matrix2x2 {
+    m11: f32, m12: f32,
+    m21: f32, m22: f32,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
 pub struct WorldPos {
-    begin: Pos2D,
+    begin: Pos2D
+}
+
+impl Mul for Matrix2x2 {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        self
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -283,9 +297,12 @@ impl Engine {
             objects: Vec::new()
         }
     }
+    #[must_use = "if you not use taked objects, objects will be dropped"]
     pub fn take_objects(&mut self) -> Vec<Object> {
         mem::take(&mut self.objects)
     }
+
+    #[must_use = "if you not use taked matrix, mtrix will be dropped"]
     pub fn take_matrix(&mut self) -> WorldPos {
         mem::take(&mut self.world_pos)
     }
@@ -365,8 +382,6 @@ impl<'a> Surface<'a> {
     fn fill_all(&mut self, color: u32) {
         let (r, g, b) = ((color & 0xff), ((color >> 8) & 0xff), ((color >> 16) & 0xff));
 
-        println!("color = {color:X}");
-
         if  (color & 0x00ffffff) == 0x00000000 ||
             (color & 0x00ffffff) == 0x00ffffff {
             let frame = cast_u32_to_u8(self.frame);
@@ -415,18 +430,18 @@ impl Renderer {
 
             match vertices {
                 ObjectVertices::Line { begin, end, width } => {
-                    Self::render_line_bresenham(frame, color, width as i32,
-                        ScreenPos::new(begin.x as i32, begin.y as i32),
-                        ScreenPos::new(end.x as i32, end.y as i32)
-                    );
-
-                    // Self::render_line_dda(frame, color, width as i32,
-                    //     begin,
-                    //     end
+                    // Self::render_line_bresenham(frame, color, width as i32,
+                    //     ScreenPos::new(begin.x as i32, begin.y as i32),
+                    //     ScreenPos::new(end.x as i32, end.y as i32)
                     // );
+
+                    Self::render_line_dda(frame, color, width as i32,
+                        begin,
+                        end
+                    );
                 }
                 ObjectVertices::Triangle { v0, v1, v2 } => {
-                    Self::render_triangle(frame, color, v0, v1, v2);
+                    Self::render_triangle_barycentric(frame, color, v0, v1, v2);
                 }
             }
         }
@@ -556,6 +571,94 @@ impl Renderer {
         }
     }
 
+    fn triangle_flat_bottom(frame: &mut Surface, color: Color, v0: Pos2D, v1: Pos2D, v2: Pos2D) {
+        if (v0.y - v2.y).abs() < f32::EPSILON {
+            Self::render_line_dda(frame, color, 1, v0, v2);
+
+            return
+        }
+
+        let y_height = (v2.y - v0.y).ceil() as i32;
+
+        let (v0, v1, v2) = (
+            ScreenPos::new(v0.x as i32, v0.y as i32),
+            ScreenPos::new(v1.x as i32, v1.y as i32),
+            ScreenPos::new(v2.x as i32, v2.y as i32),
+        );
+
+        let mut i = if v0.y < 0 {-v0.y} else { 0 };
+
+        let (r, g, b) = (
+            (color.x * 255.0).clamp(0.0, 255.0) as u32,
+            (color.y * 255.0).clamp(0.0, 255.0) as u32,
+            (color.z * 255.0).clamp(0.0, 255.0) as u32,
+        );
+
+        let color = r + (g << 8) + (b << 16) + (0xff << 24);
+
+        while i <= y_height {
+            if (i + v0.y) >= frame.height as i32 {
+                i += 1;
+
+                continue;
+            }
+
+            let stx = (v0.x * (y_height - i) + v1.x * i) / y_height;
+            let end_x = (v0.x * (y_height - i) + v2.x * i) / y_height;
+
+            let y = (i + v0.y) as u32;
+
+            frame.fill((stx as u32, y), (end_x as u32, y), color);
+
+            i += 1;
+        }
+    }
+
+    fn triangle_flat_top(frame: &mut Surface, color: Color, v0: Pos2D, v1: Pos2D, v2: Pos2D) {
+        if (v0.y - v2.y).abs() < f32::EPSILON {
+            Self::render_line_dda(frame, color, 1, v0, v2);
+
+            return
+        }
+
+        let y_height = (v2.y - v0.y).ceil() as i32;
+
+        let (r, g, b) = (
+            (color.x * 255.0).clamp(0.0, 255.0) as u32,
+            (color.y * 255.0).clamp(0.0, 255.0) as u32,
+            (color.z * 255.0).clamp(0.0, 255.0) as u32,
+        );
+
+        let color = r + (g << 8) + (b << 16) + (0xff << 24);
+
+        let mut i = if v0.y < 0.0 {-v0.y as i32} else { 0 };
+
+        let (v0, v1, v2) = (
+            ScreenPos::new(v0.x as i32, v0.y as i32),
+            ScreenPos::new(v1.x as i32, v1.y as i32),
+            ScreenPos::new(v2.x as i32, v2.y as i32),
+        );
+
+        // println!("(v0, v1, v2) = ({v0:?}, {v1:?}, {v2:?})");
+
+        while i <= y_height {
+            if (i + v0.y) >= frame.height as i32 {
+                i += 1;
+
+                continue;
+            }
+
+            let stx = (v1.x * (y_height - i) + v2.x * i) / y_height;
+            let end_x = (v0.x * (y_height - i) + v2.x * i) / y_height;
+
+            let y = (i + v0.y) as u32;
+
+            frame.fill((stx as u32, y), (end_x as u32, y), color);
+
+            i += 1;
+        }
+    }
+
     fn render_triangle(frame: &mut Surface, color: Color, mut v0: Pos2D, v1: Pos2D, v2: Pos2D) {
         let mut sorted = [v0, v1, v2];
         sorted.sort_by(|&a, &b|
@@ -565,89 +668,62 @@ impl Renderer {
         let [v0, v1, v2] = sorted;
 
         if (v0.y - v2.y).abs() < f32::EPSILON {
+            let mut sorted = [v0, v2];
+            sorted.sort_by(|&a, &b|
+                a.x.total_cmp(&b.x)
+            );
+
+            let [v0, v2] = sorted;
+
             Self::render_line_dda(frame, color, 1, v0, v2);
 
             return
         }
 
-        fn flat_bottom(frame: &mut Surface, color: Color, v0: Pos2D, v1: Pos2D, v2: Pos2D) {
-            let (r, g, b) = (
-                (color.x * 255.0).clamp(0.0, 255.0) as u32,
-                (color.y * 255.0).clamp(0.0, 255.0) as u32,
-                (color.z * 255.0).clamp(0.0, 255.0) as u32,
-            );
+        if v0.y != v1.y && v1.y != v2.y {
+            let v3 = Pos2D::new(v0.x + ((v1.y - v0.y) * (v2.x - v0.x)) / (v2.y - v0.y), v1.y);
 
-            let color = r + (g << 8) + (b << 16) + (0xff << 24);
-
-            let y_height = (v2.y - v0.y).abs();
-
-            let sty = v2.y.min(v0.y);
-
-            let i_normal_inv = 1.0 / y_height;
-
-            let mut y_norm = 0.0;
-
-            let frame_height_f32 = frame.height as f32;
-
-            let mut i = 0.0;
-
-            loop {
-                if i >= y_height {
-                    break
-                }
-
-                if  (i + sty) <= 0.0 ||
-                    (i + sty) >= frame_height_f32 {
-                    i += 1.0;
-
-                    continue;
-                }
-
-                let stx = v0.x * (1.0 - y_norm) + v1.x * y_norm;
-                let end_x = v0.x * (1.0 - y_norm) + v2.x * y_norm;
-
-                let y = (i + sty) as u32;
-
-                frame.fill((stx as u32, y), (end_x as u32, y), color);
-
-                if v0.y <= v2.y {
-                    y_norm += i_normal_inv
-                } else {
-                    y_norm -= i_normal_inv;
-                };
-
-                i += 1.0;
-            }
-        }
-
-        if (v1.y - v2.y).abs() < f32::EPSILON {
-            flat_bottom(frame, color, v0, v1, v2);
-        } else if v1.y > v2.y {
-            let x4 = Pos2D::new(v2.x, v1.y);
-
-            // if downleft.x < downright.x {
-            flat_bottom(frame, color, v0, v1, x4);
-            flat_bottom(frame, color, Pos2D::new(v1.x, v2.y), v1, x4);
-            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), downleft);
-            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, Pos2D::new(downleft.x, downright.y), x4);
-            // Renderer::render_line(frame, color * Color::gray(2.0), 2.0, downleft, x4);
-
-            // } else {s
-            //     flat_bottom(frame, color, up, x4, downleft);
-            // }
+            Self::triangle_flat_bottom(frame, color, v0, v1, v3);
+            Self::triangle_flat_top(frame, color, v1, v3, v2);
+        } else if (v1.y - v2.y).abs() < f32::EPSILON {
+            Self::triangle_flat_bottom(frame, color, v0, v1, v2);
         } else {
-            let x4 = Pos2D::new(v2.x, v1.y);
+            Self::triangle_flat_top(frame, color, v0, v1, v2);
+        }
+    }
 
-            // if downleft.x < downright.x {
-            flat_bottom(frame, color, v0, v1, x4);
-            flat_bottom(frame, color, Pos2D::new(v1.x, v2.y), v1, x4);
-            Renderer::render_line_bresenham(frame, color * 2.0, 2, ScreenPos::new(v1.x as i32, v2.y as i32), ScreenPos::new(v1.x as i32, v1.y as i32));
-            Renderer::render_line_bresenham(frame, color * 2.0, 2, ScreenPos::new(v1.x as i32, v2.y as i32), ScreenPos::new(v2.x as i32, v1.y as i32));
-            Renderer::render_line_bresenham(frame, color * 2.0, 2, ScreenPos::new(v1.x as i32, v1.y as i32), ScreenPos::new(v2.x as i32, v1.y as i32));
+    fn render_triangle_barycentric(frame: &mut Surface, color: Color, v1: Pos2D, v2: Pos2D, v3: Pos2D) {
+        let (r, g, b) = (
+            (color.x * 255.0).clamp(0.0, 255.0) as u32,
+            (color.y * 255.0).clamp(0.0, 255.0) as u32,
+            (color.z * 255.0).clamp(0.0, 255.0) as u32,
+        );
 
-            // } else {s
-            //     flat_bottom(frame, color, up, x4, downleft);
-            // }
+        let bounding_box = ObjectVertices::Triangle { v0: v1, v1: v2, v2: v3 }.bounding_box();
+
+        let (stx, sty, endx, endy) = (
+            bounding_box.v0.x.round() as u32, bounding_box.v0.y.round() as u32,
+            bounding_box.v1.x.round() as u32, bounding_box.v1.y.round() as u32,
+        );
+
+        let d = (v2.y - v3.y) * (v1.x - v3.x) + (v3.x - v2.x) * (v1.y - v3.y);
+
+        for it_y in sty..endy {
+            let y = it_y as f32;
+
+            for it_x in stx..endx {
+                let x = it_x as f32;
+
+                let h1 = ((v2.y - v3.y) * (x - v3.x) + (v3.x - v2.x) * (y - v3.y)) / d;
+                let h2 = ((v3.y - v1.y) * (x - v3.x) + (v1.x - v3.x) * (y - v3.y)) / d;
+                let h3 = 1.0 - h1 - h2;
+
+                if h1 >= 0.0 && h2 >= 0.0 && h3 >= 0.0 {
+                    if let Some(pix) = frame.get_mut((it_x, it_y)) {
+                        *pix = r + (g << 8) + (b << 16) + (0xff << 24);
+                    }
+                }
+            }
         }
     }
 
