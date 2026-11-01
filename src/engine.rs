@@ -659,7 +659,7 @@ impl Renderer {
         }
     }
 
-    fn render_triangle(frame: &mut Surface, color: Color, mut v0: Pos2D, v1: Pos2D, v2: Pos2D) {
+    fn render_triangle(frame: &mut Surface, color: Color, v0: Pos2D, v1: Pos2D, v2: Pos2D) {
         let mut sorted = [v0, v1, v2];
         sorted.sort_by(|&a, &b|
             a.y.total_cmp(&b.y)
@@ -720,7 +720,11 @@ impl Renderer {
 
                 if h1 >= 0.0 && h2 >= 0.0 && h3 >= 0.0 {
                     if let Some(pix) = frame.get_mut((it_x, it_y)) {
-                        *pix = r + (g << 8) + (b << 16) + (0xff << 24);
+                        *pix = r | (g << 8) | (b << 16) | (0xff << 24);
+                    }
+                } else {
+                    if let Some(pix) = frame.get_mut((it_x, it_y)) {
+                        *pix = 0xFF909090;
                     }
                 }
             }
