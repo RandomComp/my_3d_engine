@@ -26,20 +26,20 @@ impl Game {
     fn update_frame(&mut self, frame: &mut Surface, mouse: (f64, f64), delta: f32) {
         let matrix = self.engine.take_matrix();
 
-        let (color, vert1, vert2, vert3) = (
-            Color::new(0.0_f32, 1.0_f32, 0.0_f32),
+//         let (color, vert1, vert2, vert3) = (
+//             Color::new(0.0_f32, 1.0_f32, 0.0_f32),
+//
+//             Pos2D::new(mouse.0 as f32, mouse.1 as f32),
+//             Pos2D::new(frame.width as f32 * 0.5 + 60.0_f32, frame.height as f32 * 0.5 + 60.0_f32),
+//             Pos2D::new(frame.width as f32 * 0.5 + -60.0_f32, frame.height as f32 * 0.5 + 100.0_f32),
+//         );
 
-            Pos2D::new(mouse.0 as f32, mouse.1 as f32),
-            Pos2D::new(frame.width as f32 * 0.5 + 60.0_f32, frame.height as f32 * 0.5 + 60.0_f32),
-            Pos2D::new(frame.width as f32 * 0.5 + -60.0_f32, frame.height as f32 * 0.5 + 100.0_f32),
-        );
-
-        // self.engine.translate(Pos2D::new(frame.width as f32 * 0.5, frame.height as f32 * 0.5));
+        self.engine.translate(Pos2D::new(frame.width as f32 * 0.5, frame.height as f32 * 0.5));
 
         // for _ in 0..10000 {
-            self.engine.triangle(
-                color, vert1, vert2, vert3
-            );
+            // self.engine.triangle(
+            //     color, vert1, vert2, vert3
+            // );
             // self.engine.translate(Pos2D::new(120.0, 0.0));
             // self.engine.wf_triangle(
             //     color,
@@ -74,35 +74,35 @@ impl Game {
         //             Pos2D::new(60.0_f32, -60.0_f32),
         //         );
 
-//         let center = Pos2D::new(0.0, 0.0);
-//         let radius = 100.0;
-//
-//         let steps = delta;
-//         let step = (std::f32::consts::PI * 2.0) / steps;
-//
-//         let mut i: f32 = 0.0;
-//
-//         for _ in 0..(steps as usize) {
-//             let v0 = Pos2D::new(
-//                 center.x + radius * i.cos(),
-//                 center.y + radius * i.sin()
-//             );
-//
-//             i += step;
-//
-//             let v1 = Pos2D::new(
-//                 center.x + radius * i.cos(),
-//                 center.y + radius * i.sin()
-//             );
-//
-//             self.engine.triangle(Color::new(0.9, 0.2, 0.0), v0, v1, center);
-//
-//             // self.engine.line(Color::new(1.0, 0.0, 0.0), 1.0, v0, v1);
-//
-//             // self.engine.line(Color::new(1.0, 0.0, 0.0), 1.0, v0, v1);
-//             // self.engine.line(Color::new(0.0, 1.0, 0.0), 1.0, v0, center);
-//             // self.engine.line(Color::new(0.0, 0.0, 1.0), 1.0, v1, center);
-//         }
+        let center = Pos2D::new(0.0, 0.0);
+        let radius = 100.0;
+
+        let steps = 32.0;
+        let step = (std::f32::consts::PI * 2.0) / steps;
+
+        let mut i: f32 = 0.0;
+
+        for _ in 0..(steps as usize) {
+            let v0 = Pos2D::new(
+                center.x + radius * i.cos(),
+                center.y + radius * i.sin()
+            );
+
+            let v1 = Pos2D::new(
+                center.x + radius * (i + step).cos(),
+                center.y + radius * (i + step).sin()
+            );
+
+            self.engine.triangle(Color::new(0.9, 0.2, 0.0), v0, v1, center);
+
+            i += step;
+
+            // self.engine.line(Color::new(1.0, 0.0, 0.0), 1.0, v0, v1);
+
+            // self.engine.line(Color::new(1.0, 0.0, 0.0), 1.0, v0, v1);
+            // self.engine.line(Color::new(0.0, 1.0, 0.0), 1.0, v0, center);
+            // self.engine.line(Color::new(0.0, 0.0, 1.0), 1.0, v1, center);
+        }
 
         // self.engine.line(
         //     Color::new(1.0, 0.0, 0.0),

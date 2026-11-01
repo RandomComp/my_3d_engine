@@ -379,6 +379,24 @@ impl<'a> Surface<'a> {
         self.frame.get_mut(x + (y * self.width as usize))
     }
 
+    fn phys_pixel(&mut self, index: (u32, u32), color: u32) {
+        if let Some(pixel) = self.get_mut(index) {
+            *pixel = color;
+        }
+    }
+
+    fn pixel(&mut self, index: (f32, f32), color: u32) {
+        if index.0 < 0.0 || index.1 < 0.0 {
+            return
+        }
+
+        let index = (index.0 as u32, index.1 as u32);
+
+        if let Some(pixel) = self.get_mut(index) {
+            *pixel = color;
+        }
+    }
+
     fn fill_all(&mut self, color: u32) {
         let (r, g, b) = ((color & 0xff), ((color >> 8) & 0xff), ((color >> 16) & 0xff));
 
@@ -547,9 +565,7 @@ impl Renderer {
                     error += 2 * delta_y - 2 * delta_x;
                 }
 
-                if let Some(pix) = frame.get_mut(((start.x + x) as u32, pos_y as u32)) {
-                    *pix = r + (g << 8) + (b << 16) + (0xff << 24);
-                }
+                frame.phys_pixel(((start.x + x) as u32, pos_y as u32), r + (g << 8) + (b << 16) + (0xff << 24));
             }
         } else {
             let mut pos_x = start.x;
@@ -564,9 +580,7 @@ impl Renderer {
                     error += 2 * delta_x - 2 * delta_y;
                 }
 
-                if let Some(pix) = frame.get_mut((pos_x as u32, (start.y + y) as u32)) {
-                    *pix = r + (g << 8) + (b << 16) + (0xff << 24);
-                }
+                frame.phys_pixel((pos_x as u32, (start.y + y) as u32), r + (g << 8) + (b << 16) + (0xff << 24));
             }
         }
     }
@@ -702,32 +716,30 @@ impl Renderer {
         let bounding_box = ObjectVertices::Triangle { v0: v1, v1: v2, v2: v3 }.bounding_box();
 
         let (stx, sty, endx, endy) = (
-            bounding_box.v0.x.round() as u32, bounding_box.v0.y.round() as u32,
-            bounding_box.v1.x.round() as u32, bounding_box.v1.y.round() as u32,
+            bounding_box.v0.x, bounding_box.v0.y,
+            bounding_box.v1.x, bounding_box.v1.y,
         );
 
         let d = (v2.y - v3.y) * (v1.x - v3.x) + (v3.x - v2.x) * (v1.y - v3.y);
 
-        for it_y in sty..endy {
-            let y = it_y as f32;
+        let mut y = sty;
 
-            for it_x in stx..endx {
-                let x = it_x as f32;
+        while y <= endy {
+            let mut x = stx;
 
+            while x <= endx {
                 let h1 = ((v2.y - v3.y) * (x - v3.x) + (v3.x - v2.x) * (y - v3.y)) / d;
                 let h2 = ((v3.y - v1.y) * (x - v3.x) + (v1.x - v3.x) * (y - v3.y)) / d;
                 let h3 = 1.0 - h1 - h2;
 
                 if h1 >= 0.0 && h2 >= 0.0 && h3 >= 0.0 {
-                    if let Some(pix) = frame.get_mut((it_x, it_y)) {
-                        *pix = r | (g << 8) | (b << 16) | (0xff << 24);
-                    }
-                } else {
-                    if let Some(pix) = frame.get_mut((it_x, it_y)) {
-                        *pix = 0xFF909090;
-                    }
+                    frame.pixel((x, y), r | (g << 8) | (b << 16) | (0xff << 24));
                 }
+
+                x += 1.0;
             }
+
+            y += 1.0;
         }
     }
 
@@ -739,9 +751,7 @@ impl Renderer {
         );
 
         if size.x == 1 && size.y == 1 {
-            if let Some(pix) = frame.get_mut((pos.x as u32, pos.y as u32)) {
-                *pix = r + (g << 8) + (b << 16) + (0xff << 24);
-            }
+            frame.phys_pixel((pos.x as u32, pos.y as u32), r + (g << 8) + (b << 16) + (0xff << 24));
 
             return
         }
